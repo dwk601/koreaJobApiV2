@@ -1,0 +1,88 @@
+# ─────── Python ───────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+MANIFEST
+*.manifest
+*.spec
+
+# ─────── Virtual envs ───────
+.venv/
+venv/
+env/
+.env/
+.envrc
+
+# ─────── uv / pip ───────
+# Keep uv.lock committed (reproducible installs); ignore caches only.
+.uv-cache/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ─────── Test / lint / type caches ───────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+.tox/
+.nox/
+
+# ─────── Env files (secrets) ───────
+# Commit only the *.example templates.
+.env
+.env.*
+!.env.example
+!deploy/.env.production.example
+
+# ─────── IDE / editor ───────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# ─────── OS ───────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────── Logs / runtime artefacts ───────
+*.log
+logs/
+*.pid
+*.seed
+
+# ─────── AI / agent tooling (not part of the app) ───────
+# Kiro workspace + skills lock
+.kiro/
+skills-lock.json
+# Planning / design scratchpads
+PLAN.md
+# Other common agent-tool directories, ignored proactively
+.claude/
+.cursor/
+.windsurf/
+.aider*
+.continue/
+.github-copilot/
+AGENTS.md
+CLAUDE.md
+.agent/
+
+# ─────── Node (for any future tooling that drops node_modules) ───────
+node_modules/

@@ -1,0 +1,34 @@
+# supercronic crontab for apiV2 — consumed by the `sync-cron` service in
+# docker-compose.yml. Copied into the image at /app/deploy/crontab.
+#
+# Scheduling rationale:
+#   * Every 15 min → `reindex incremental`
+#       Fast delta push: only rows whose `updated_at` advanced past the
+#       Redis-stored watermark (`sync:jobs:watermark`).
+#   * Every day at 03:00 → `reindex full`
+#       Safety net against drift: rebuilds the Meilisearch index from
+#       Postgres, wipes and re-pushes every row.
+#
+# Overlap safety:
+#   Both commands call into app/sync/runner.py, which advisory-locks
+#   the Redis key `sync:jobs:lock` (TTL = SYNC_LOCK_TTL seconds, default
+#   3600). If the one-shot `sync-init` (run on every Coolify deploy) is
+#   still working when a scheduled tick fires, the tick short-circuits
+#   with a `sync.*.lock_held` log line and exits 0 — no contention, no
+#   duplicate writes.
+#
+# Timezone:
+#   supercronic interprets schedules in the container's local time.
+#   Keep the container on UTC (default for the python:3.13-slim base
+#   image) unless you set TZ in the compose env.
+#
+# Format reminder (m h dom mon dow):
+#   *    *    *    *    *    command
+#   │    │    │    │    └── day-of-week (0–7, 0 & 7 = Sun)
+#   │    │    │    └────── month (1–12)
+#   │    │    └─────────── day-of-month (1–31)
+#   │    └──────────────── hour (0–23)
+#   └───────────────────── minute (0–59)
+
+*/15 * * * * /app/.venv/bin/python -m app.sync.cli reindex incremental
+0   3 * * * /app/.venv/bin/python -m app.sync.cli reindex full

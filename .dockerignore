@@ -1,0 +1,48 @@
+# Keep the build context lean and reproducible.
+
+# Python / tooling caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Virtualenv — the image builds its own .venv via `uv sync`.
+.venv/
+venv/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Local config that must never leak into the image.
+.env
+.env.*
+!.env.example
+
+# Git metadata (large and not needed inside the image).
+.git/
+.gitignore
+.gitattributes
+
+# Tests (not shipped; keep image small and reduce attack surface).
+tests/
+
+# Task / planning artefacts and scratch docs.
+PLAN.md
+README.md
+docs/
+.kiro/
+skills-lock.json
+
+# Docker artefacts
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# OS-specific
+.DS_Store
+Thumbs.db

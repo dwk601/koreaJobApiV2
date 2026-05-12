@@ -1,0 +1,237 @@
+# ═════════════════════════════════════════════════════════════════════════
+#  apiV2 — production docker-compose for Coolify
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Deployment model
+# ────────────────
+#   Create a new Application in Coolify → type "Docker Compose" → point at
+#   this repo, compose path `docker-compose.yml`. Coolify builds the image
+#   from the repo's Dockerfile, injects the env vars you set in its UI,
+#   generates Traefik labels + TLS from SERVICE_FQDN_API_8000, and runs
+#   the three services defined below.
+#
+# Three services, one image
+# ─────────────────────────
+#   api        — FastAPI behind Coolify's Traefik, runs `alembic upgrade
+#                head` on boot. Public (via SERVICE_FQDN_API_8000).
+#   sync-init  — One-shot: creates the Meilisearch index and does an
+#                initial incremental reindex (which seeds everything on a
+#                fresh index, because the Redis watermark starts at epoch
+#                0). Runs on every deploy. `restart: "no"`.
+#   sync-cron  — Long-running. `supercronic` reads /app/deploy/crontab and
+#                fires `reindex incremental` every 15 min + `reindex full`
+#                nightly at 03:00 UTC.
+#
+# External Coolify resources
+# ──────────────────────────
+#   Postgres, Redis and Meilisearch are assumed to exist already as
+#   Coolify-managed Resources on the same host. They're reached over
+#   Coolify's shared Docker network (default name `coolify`; override
+#   with $COOLIFY_NETWORK). Paste DATABASE_URL / REDIS_URL / MEILI_URL
+#   from each resource's Connect → Internal tab.
+#
+# Required Coolify env vars (set in the Application → Environment tab)
+# ────────────────────────────────────────────────────────────────────
+#   See deploy/.env.production.example — copy every line from there into
+#   Coolify's UI and fill in the CHANGE_ME placeholders. At minimum:
+#     SERVICE_FQDN_API_8000   (or leave blank for Coolify-generated)
+#     DATABASE_URL, REDIS_URL, MEILI_URL, MEILI_MASTER_KEY
+#     CORS_ORIGINS
+#
+# Hardening
+# ─────────
+#   * non-root (`appuser` uid 1000, baked into the image)
+#   * read-only root filesystem + tmpfs /tmp
+#   * json-file log rotation (10 MB × 5 files per service)
+#   * resource limits (tune via env at the bottom of the file)
+#   * no `ports:` — Coolify+Traefik handle ingress; only `expose: 8000`
+#   * healthcheck-gated startup so sync doesn't start before api is up
+# ═════════════════════════════════════════════════════════════════════════
+
+name: apiv2
+
+# ─── Shared env anchor ────────────────────────────────────────────────────
+# Every service reads the same app settings; only ALEMBIC_MODE differs,
+# which is why it is NOT in this anchor (set per service below).
+x-app-env: &app_env
+  APP_NAME: ${APP_NAME:-apiV2}
+  DEBUG: "${DEBUG:-false}"
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: ${REDIS_URL}
+  REDIS_MAX_CONNECTIONS: ${REDIS_MAX_CONNECTIONS:-20}
+  REDIS_SOCKET_TIMEOUT: ${REDIS_SOCKET_TIMEOUT:-5}
+  REDIS_SOCKET_CONNECT_TIMEOUT: ${REDIS_SOCKET_CONNECT_TIMEOUT:-5}
+
+  MEILI_URL: ${MEILI_URL}
+  MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+  MEILI_INDEX_NAME: ${MEILI_INDEX_NAME:-jobs}
+  MEILI_TIMEOUT_MS: ${MEILI_TIMEOUT_MS:-5000}
+
+  CORS_ORIGINS: ${CORS_ORIGINS}
+
+  RATE_LIMIT_ENABLED: "${RATE_LIMIT_ENABLED:-true}"
+  RATE_LIMIT_LIST_PER_MIN: ${RATE_LIMIT_LIST_PER_MIN:-120}
+  RATE_LIMIT_SUGGEST_PER_MIN: ${RATE_LIMIT_SUGGEST_PER_MIN:-30}
+  RATE_LIMIT_DEFAULT_PER_MIN: ${RATE_LIMIT_DEFAULT_PER_MIN:-60}
+
+  CACHE_TTL_LIST: ${CACHE_TTL_LIST:-60}
+  CACHE_TTL_FACETS: ${CACHE_TTL_FACETS:-120}
+  CACHE_TTL_STATS: ${CACHE_TTL_STATS:-300}
+  CACHE_TTL_SUGGEST: ${CACHE_TTL_SUGGEST:-30}
+  CACHE_TTL_DETAIL: ${CACHE_TTL_DETAIL:-300}
+
+  SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-500}
+  SYNC_LOCK_TTL: ${SYNC_LOCK_TTL:-3600}
+  SYNC_DESCRIPTION_MAX_BYTES: ${SYNC_DESCRIPTION_MAX_BYTES:-4096}
+
+# ─── Shared logging anchor — JSON with rotation, avoids disk fill ────────
+x-logging: &default_logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# ─── Shared hardening anchor ──────────────────────────────────────────────
+x-hardening: &default_hardening
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  # ───────────────────────────────────────────────────────────────────────
+  # api — public FastAPI service. Coolify generates Traefik labels from
+  # SERVICE_FQDN_API_8000 (magic env var; suffix must match service name +
+  # internal port). Alembic migrations run here on every boot.
+  # ───────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apiv2:latest
+    restart: unless-stopped
+    environment:
+      <<: *app_env
+      ALEMBIC_MODE: upgrade
+      # Coolify picks up this magic variable and wires Traefik + TLS.
+      # Set the value in Coolify's Environment tab (or leave blank for
+      # a generated *.sslip.io domain).
+      SERVICE_FQDN_API_8000: ${SERVICE_FQDN_API_8000}
+    expose:
+      - "8000"
+    healthcheck:
+      # Mirror the Dockerfile HEALTHCHECK so Coolify / compose can gate
+      # dependents on `service_healthy`.
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default_logging
+    <<: *default_hardening
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-1.0}"
+          memory: ${API_MEM_LIMIT:-512M}
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    networks:
+      - coolify
+      - default
+
+  # ───────────────────────────────────────────────────────────────────────
+  # sync-init — runs ONCE per deploy:
+  #   1. init-index (idempotent create + settings update)
+  #   2. reindex incremental (seeds everything on fresh install because
+  #      the watermark defaults to epoch 0; no-op when caught up)
+  # Waits for api to be healthy so alembic has finished first. Never
+  # touches the schema itself (ALEMBIC_MODE=skip) and `restart: "no"` so
+  # it doesn't loop.
+  # ───────────────────────────────────────────────────────────────────────
+  sync-init:
+    image: apiv2:latest
+    restart: "no"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      <<: *app_env
+      ALEMBIC_MODE: skip
+    entrypoint: []
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "[sync-init] init-index"
+        python -m app.sync.cli init-index
+        echo "[sync-init] reindex incremental"
+        python -m app.sync.cli reindex incremental
+        echo "[sync-init] done"
+    logging: *default_logging
+    <<: *default_hardening
+    deploy:
+      resources:
+        limits:
+          cpus: "${SYNC_CPU_LIMIT:-1.0}"
+          memory: ${SYNC_MEM_LIMIT:-512M}
+    networks:
+      - coolify
+      - default
+
+  # ───────────────────────────────────────────────────────────────────────
+  # sync-cron — long-running supercronic. Reads /app/deploy/crontab, runs
+  # `reindex incremental` every 15 min and `reindex full` nightly at 03:00
+  # UTC. Starts only after sync-init has exited 0 so the index is ready.
+  # ───────────────────────────────────────────────────────────────────────
+  sync-cron:
+    image: apiv2:latest
+    restart: unless-stopped
+    depends_on:
+      sync-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *app_env
+      ALEMBIC_MODE: skip
+    entrypoint: []
+    # -quiet silences supercronic's per-tick "started/finished" noise;
+    # the CLI's own structlog output is still emitted.
+    command: ["/usr/local/bin/supercronic", "-quiet", "/app/deploy/crontab"]
+    healthcheck:
+      # Prove the process is alive — supercronic exits on any crontab
+      # parse error, so PID 1 existing is a sufficient signal.
+      test: ["CMD", "pgrep", "-f", "supercronic"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *default_logging
+    <<: *default_hardening
+    deploy:
+      resources:
+        limits:
+          cpus: "${SYNC_CPU_LIMIT:-1.0}"
+          memory: ${SYNC_MEM_LIMIT:-512M}
+    networks:
+      - coolify
+      - default
+
+networks:
+  # Coolify's shared network — joined as `external` so this stack can
+  # resolve the managed Postgres / Redis / Meilisearch hostnames. The
+  # network itself must already exist (Coolify creates it on install).
+  # Set $COOLIFY_NETWORK if your install uses a non-default name.
+  coolify:
+    external: true
+    name: ${COOLIFY_NETWORK:-coolify}
+  # Private internal network for this stack's own service-to-service
+  # chatter. Currently unused (sync services talk to Redis/PG/Meili on
+  # the coolify net), but kept so intra-stack links don't need to
+  # traverse the shared network in the future.
+  default:
+    driver: bridge

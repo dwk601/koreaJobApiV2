@@ -1,0 +1,146 @@
+# Local development stack for apiV2.
+#
+# Brings up Postgres (with the ETL-style schema + 25 seed rows auto-loaded),
+# Redis, Meilisearch, the API itself, and a one-shot sync container that
+# initialises the Meili index and does a full reindex from the seed data.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   docker compose -f docker-compose.dev.yml up --build sync   # re-sync only
+#   docker compose -f docker-compose.dev.yml down -v           # wipe volumes
+
+name: apiv2-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: job
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Auto-run on first initialisation (volume empty). Creates table,
+      # indexes, and 25 seed rows. Re-run `docker compose down -v` to
+      # re-trigger.
+      - ./tests/fixtures/seed.sql:/docker-entrypoint-initdb.d/00-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d job"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    environment:
+      MEILI_MASTER_KEY: devMasterKey
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "57700:7700"
+    volumes:
+      - meilidata:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apiv2:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment: &app_env
+      # ── App ──
+      APP_NAME: apiV2-dev
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      # ── Postgres ──
+      DATABASE_URL: postgresql+asyncpg://dev:devpassword@postgres:5432/job
+      # ── Redis ──
+      REDIS_URL: redis://redis:6379/0
+      # ── Meilisearch ──
+      MEILI_URL: http://meilisearch:7700
+      MEILI_MASTER_KEY: devMasterKey
+      MEILI_INDEX_NAME: jobs
+      # ── CORS ──
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
+      # ── Rate limit (loose in dev) ──
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_LIST_PER_MIN: "600"
+      RATE_LIMIT_SUGGEST_PER_MIN: "300"
+      RATE_LIMIT_DEFAULT_PER_MIN: "300"
+      # ── Alembic ──
+      # The ETL schema is pre-loaded by seed.sql, so we stamp rather than
+      # run migrations (baseline would still be a no-op — this just makes
+      # the intent explicit in dev).
+      ALEMBIC_MODE: stamp
+    ports:
+      - "58000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-shot: initialise the Meilisearch index and do a full reindex from
+  # the seeded Postgres rows. Exits 0 when done so `docker compose up`
+  # shows it as "exited (0)". Re-run with:
+  #   docker compose -f docker-compose.dev.yml up sync
+  sync:
+    image: apiv2:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      <<: *app_env
+      # Keep the API's access-log noise out of one-shot jobs.
+      LOG_LEVEL: INFO
+    entrypoint: []
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "[sync] init-index"
+        python -m app.sync.cli init-index
+        echo "[sync] reindex full"
+        python -m app.sync.cli reindex full
+        echo "[sync] done"
+    restart: "no"
+
+volumes:
+  pgdata:
+  meilidata:
