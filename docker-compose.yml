@@ -169,16 +169,30 @@ services:
     # must be a null") on some Docker Compose versions (Coolify builder),
     # so we set tini explicitly.
     entrypoint: ["/usr/bin/tini", "--"]
+    # sync-init is best-effort: its job is to seed the Meili index on a
+    # fresh deploy, but it must NOT block production traffic if something
+    # upstream is misconfigured (missing `job_postings` table, wrong
+    # MEILI_MASTER_KEY, unreachable PG/Redis/Meili hostname, …). The
+    # full structlog output from each CLI invocation is still emitted,
+    # so the actual error is visible in `sync-init` logs in Coolify.
+    # sync-cron keeps retrying on its own schedule (every 15 min) and
+    # `app.sync.cli._ensure_index_and_run` re-runs `init-index` before
+    # each reindex, so the seed is self-healing as soon as the root
+    # cause is fixed in Coolify's env tab.
     command:
       - /bin/sh
       - -c
       - |
-        set -e
         echo "[sync-init] init-index"
-        python -m app.sync.cli init-index
+        if ! python -m app.sync.cli init-index; then
+          echo "[sync-init] init-index FAILED — sync-cron will retry every 15 min; check MEILI_URL/MEILI_MASTER_KEY and managed-Meilisearch connectivity" >&2
+        fi
         echo "[sync-init] reindex incremental"
-        python -m app.sync.cli reindex incremental
-        echo "[sync-init] done"
+        if ! python -m app.sync.cli reindex incremental; then
+          echo "[sync-init] reindex FAILED — sync-cron will retry every 15 min; check DATABASE_URL, that the job_postings table exists (owned by ETL), and REDIS_URL" >&2
+        fi
+        echo "[sync-init] done (any failures above are non-fatal to the deploy)"
+        exit 0
     logging: *default_logging
     <<: *default_hardening
     deploy:

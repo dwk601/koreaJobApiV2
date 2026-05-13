@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 
 import typer
+from meilisearch_python_sdk.errors import MeilisearchApiError
 
 from app.cache.redis_client import close_redis, get_redis
 from app.config import get_settings
@@ -40,7 +41,14 @@ async def _init_index() -> None:
         async def _create() -> None:
             try:
                 await client.get_index(settings.meili_index_name)
-            except Exception:  # noqa: BLE001 - SDK raises generic on missing
+            except MeilisearchApiError as exc:
+                # Only "index not found" justifies creating it. Anything
+                # else (auth, bad URL, master key mismatch) must surface
+                # so operators can see it in the container logs rather
+                # than being swallowed and then failing later in an
+                # even more confusing way.
+                if exc.code != "index_not_found":
+                    raise
                 await client.create_index(
                     settings.meili_index_name,
                     primary_key="id",
