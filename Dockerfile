@@ -37,11 +37,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ─────────────────────────────────────────────────────────────
 FROM python:3.13-slim AS runtime
 
-# curl is used by HEALTHCHECK; ca-certificates for TLS upstreams.
+# curl is used by HEALTHCHECK; ca-certificates for TLS upstreams;
+# procps provides pgrep for sync-cron's supercronic healthcheck.
 # Pin versions would require the apt-cacher; rely on the base image's
 # pinned snapshot for reproducibility.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates tini \
+ && apt-get install -y --no-install-recommends curl ca-certificates tini procps \
  && rm -rf /var/lib/apt/lists/*
 
 # ─────────────────────────────────────────────────────────────
