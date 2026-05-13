@@ -162,7 +162,13 @@ services:
     environment:
       <<: *app_env
       ALEMBIC_MODE: skip
-    entrypoint: []
+    # Bypass the image's default entrypoint (tini -- scripts/entrypoint.sh,
+    # which runs alembic + uvicorn) and instead use tini alone so signals
+    # and zombies are handled properly. An empty-array `entrypoint: []`
+    # trips a known gojsonschema/compose-go validation bug ("entrypoint
+    # must be a null") on some Docker Compose versions (Coolify builder),
+    # so we set tini explicitly.
+    entrypoint: ["/usr/bin/tini", "--"]
     command:
       - /bin/sh
       - -c
@@ -198,7 +204,11 @@ services:
     environment:
       <<: *app_env
       ALEMBIC_MODE: skip
-    entrypoint: []
+    # See sync-init comment above — use tini directly instead of the
+    # image's default entrypoint so we skip alembic + uvicorn while still
+    # getting proper signal handling and avoid the `entrypoint: []`
+    # compose-go validation bug.
+    entrypoint: ["/usr/bin/tini", "--"]
     # -quiet silences supercronic's per-tick "started/finished" noise;
     # the CLI's own structlog output is still emitted.
     command: ["/usr/local/bin/supercronic", "-quiet", "/app/deploy/crontab"]

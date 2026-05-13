@@ -128,7 +128,10 @@ services:
       <<: *app_env
       # Keep the API's access-log noise out of one-shot jobs.
       LOG_LEVEL: INFO
-    entrypoint: []
+    # Use tini directly to skip the image's entrypoint.sh (alembic +
+    # uvicorn). An empty-array `entrypoint: []` trips a compose-go
+    # schema validation bug on newer Docker Compose releases.
+    entrypoint: ["/usr/bin/tini", "--"]
     command:
       - /bin/sh
       - -c
