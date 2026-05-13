@@ -142,6 +142,7 @@ services:
           memory: 128M
     networks:
       - coolify
+      - meili_net
       - default
 
   # ───────────────────────────────────────────────────────────────────────
@@ -202,6 +203,7 @@ services:
           memory: ${SYNC_MEM_LIMIT:-512M}
     networks:
       - coolify
+      - meili_net
       - default
 
   # ───────────────────────────────────────────────────────────────────────
@@ -243,19 +245,38 @@ services:
           memory: ${SYNC_MEM_LIMIT:-512M}
     networks:
       - coolify
+      - meili_net
       - default
 
 networks:
   # Coolify's shared network — joined as `external` so this stack can
-  # resolve the managed Postgres / Redis / Meilisearch hostnames. The
-  # network itself must already exist (Coolify creates it on install).
-  # Set $COOLIFY_NETWORK if your install uses a non-default name.
+  # resolve the managed Postgres / Redis hostnames. The network itself
+  # must already exist (Coolify creates it on install). Set
+  # $COOLIFY_NETWORK if your install uses a non-default name.
   coolify:
     external: true
     name: ${COOLIFY_NETWORK:-coolify}
+  # Meilisearch's Coolify-generated private network. Coolify puts each
+  # managed resource on its own network whose name matches the
+  # resource's UUID; unlike Postgres/Redis, Meilisearch is NOT attached
+  # to the shared `coolify` network by default, so app containers must
+  # join Meilisearch's private network to resolve the
+  # `meilisearch-<uuid>` hostname used in MEILI_URL.
+  #
+  # Set $MEILI_NETWORK in Coolify → Application → Environment to the
+  # Meilisearch resource's network name (open the Meilisearch resource
+  # in Coolify → Connect → the suffix of the internal hostname, e.g.
+  # `hlhprexpqq7cva0egwahr7ei` for `meilisearch-hlhprexpqq7cva0egwahr7ei`).
+  #
+  # If instead you've attached the Meilisearch resource to the shared
+  # `coolify` network via its Network tab, you can leave $MEILI_NETWORK
+  # unset and remove `meili_net` from each service's `networks:` list.
+  meili_net:
+    external: true
+    name: ${MEILI_NETWORK:?error MEILI_NETWORK must be set to Meilisearch resource network name, e.g. hlhprexpqq7cva0egwahr7ei}
   # Private internal network for this stack's own service-to-service
   # chatter. Currently unused (sync services talk to Redis/PG/Meili on
-  # the coolify net), but kept so intra-stack links don't need to
-  # traverse the shared network in the future.
+  # the coolify / meili_net nets), but kept so intra-stack links don't
+  # need to traverse the shared networks in the future.
   default:
     driver: bridge

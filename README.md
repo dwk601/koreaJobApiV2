@@ -329,9 +329,12 @@ Overlap is safe because `app/sync/runner.py` advisory-locks the Redis key `sync:
    - `REDIS_URL=redis://<redis-internal-host>:6379/0` (add `:<password>@` before the host if Redis requires auth)
    - `MEILI_URL=http://<meili-internal-host>:7700`
    - `MEILI_MASTER_KEY=<secret>`
+   - `MEILI_NETWORK=<meili-resource-uuid>` (the suffix of `<meili-internal-host>`; see note below)
    - `CORS_ORIGINS=https://your-frontend-domain`
    - `SERVICE_FQDN_API_8000=<your-api-domain>` (leave blank to get a Coolify-generated `*.sslip.io`)
    - `COOLIFY_NETWORK=coolify` (override only if `docker network ls` shows a different shared network name)
+
+   **About `MEILI_NETWORK`.** Coolify attaches each managed resource to a private Docker network named after that resource's UUID. Postgres and Redis are usually also attached to the shared `coolify` network, but Meilisearch is not — so the app's containers need to join Meilisearch's private network explicitly or they will fail DNS lookup for the `meilisearch-<uuid>` hostname with `[Errno -2] Name or service not known`. Set `MEILI_NETWORK` to the UUID (e.g. if `MEILI_URL=http://meilisearch-hlhprexpqq7cva0egwahr7ei:7700`, then `MEILI_NETWORK=hlhprexpqq7cva0egwahr7ei`). Alternatively, attach the Meilisearch resource to the `coolify` network from its Network tab in the Coolify UI and remove `meili_net` from each service's `networks:` list in `docker-compose.yml`.
 3. **Deploy.** Coolify builds the image, spins up `api` (migrations run), waits for `/health`, runs `sync-init`, then starts `sync-cron`. Expect the first deploy to take 2–5 min.
 4. **Smoke test.**
    ```bash
