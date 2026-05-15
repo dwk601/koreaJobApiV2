@@ -42,7 +42,7 @@ def test_build_filters_simple_equalities_and_ranges() -> None:
         for p in parts
     )
     assert any("salary_max <= 120000" in p for p in parts)
-    assert f"post_date_ts >= {_ts(date(2026, 1, 1))}" in parts
+    assert f"freshness_ts >= {_ts(date(2026, 1, 1))}" in parts
     assert "company_inferred = false" in parts
 
 
@@ -54,7 +54,7 @@ def test_build_filters_escapes_quotes() -> None:
 
 def test_build_sort_default_sorts() -> None:
     assert build_sort("relevance") == []
-    assert build_sort("newest") == ["post_date_ts:desc", "id:desc"]
+    assert build_sort("newest") == ["freshness_ts:desc", "id:desc"]
     assert build_sort("salary_high") == ["salary_max:desc", "id:desc"]
     assert build_sort("salary_low") == ["salary_min:asc", "id:asc"]
     assert build_sort("company_az") == ["company:asc", "id:asc"]

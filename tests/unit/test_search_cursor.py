@@ -16,7 +16,7 @@ from app.search.cursor import (
 
 
 def test_encode_decode_roundtrip() -> None:
-    payload = {"mode": "ks", "sort": "newest", "last": {"post_date_ts": 123, "id": 7}}
+    payload = {"mode": "ks", "sort": "newest", "last": {"freshness_ts": 123, "id": 7}}
     cur = encode_cursor(payload)
     assert isinstance(cur, str)
     assert "=" not in cur  # base64 padding stripped
@@ -37,10 +37,10 @@ def test_is_keyset_sort() -> None:
 
 
 def test_ks_filter_for_newest_desc() -> None:
-    last = {"post_date_ts": 1000, "id": 42}
+    last = {"freshness_ts": 1000, "id": 42}
     expr = ks_filter_for_next_page("newest", last)
     assert expr == (
-        "((post_date_ts < 1000) OR (post_date_ts = 1000 AND id < 42))"
+        "((freshness_ts < 1000) OR (freshness_ts = 1000 AND id < 42))"
     )
 
 
@@ -58,19 +58,19 @@ def test_ks_filter_none_for_page_mode_sorts() -> None:
 
 def test_ks_filter_missing_fields_raises() -> None:
     with pytest.raises(ValidationFailed):
-        ks_filter_for_next_page("newest", {"id": 1})  # no post_date_ts
+        ks_filter_for_next_page("newest", {"id": 1})  # no freshness_ts
 
 
 def test_build_ks_cursor_skips_when_key_missing() -> None:
-    assert build_ks_cursor("newest", {"id": 1, "post_date_ts": None}) is None
+    assert build_ks_cursor("newest", {"id": 1, "freshness_ts": None}) is None
 
 
 def test_build_ks_cursor_round_trip() -> None:
-    hit = {"id": 7, "post_date_ts": 555, "record_id": "x"}
+    hit = {"id": 7, "freshness_ts": 555, "record_id": "x"}
     cur = build_ks_cursor("newest", hit)
     assert cur is not None
     assert decode_cursor(cur) == {
-        "mode": "ks", "sort": "newest", "last": {"post_date_ts": 555, "id": 7}
+        "mode": "ks", "sort": "newest", "last": {"freshness_ts": 555, "id": 7}
     }
 
 

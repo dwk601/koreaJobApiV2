@@ -15,6 +15,7 @@ SEARCHABLE: list[str] = ["title", "company", "description"]
 # Attributes we can sort by (epoch int for dates; numeric for salaries).
 SORTABLE: list[str] = [
     "post_date_ts",
+    "freshness_ts",
     "id",
     "salary_max",
     "salary_min",
@@ -35,6 +36,7 @@ FILTERABLE: list[str] = [
     "salary_unit",
     "salary_currency",
     "post_date_ts",
+    "freshness_ts",
 ]
 
 
@@ -53,4 +55,5 @@ def build_index_settings() -> MeilisearchSettings:
         filterable_attributes=FILTERABLE,
         typo_tolerance=TYPO_TOLERANCE,
         stop_words=[],  # preserve short Korean tokens
+        pagination={"maxTotalHits": 100_000},
     )

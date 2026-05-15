@@ -33,9 +33,13 @@ SALARY_BUCKETS: dict[str, tuple[float | None, float | None]] = {
 }
 
 # Sort expressions keyed by the public ``sort`` value.
+#
+# ``newest`` sorts by ``freshness_ts`` (= ``post_date_ts`` when present, else
+# ``scraped_at``) so listings without a parsed ``post_date`` still appear in
+# recency-ordered results instead of sinking to the epoch-0 floor.
 SORT_EXPRESSIONS: dict[str, list[str]] = {
     "relevance":   [],
-    "newest":      ["post_date_ts:desc", "id:desc"],
+    "newest":      ["freshness_ts:desc", "id:desc"],
     "salary_high": ["salary_max:desc", "id:desc"],
     "salary_low":  ["salary_min:asc", "id:asc"],
     "company_az":  ["company:asc", "id:asc"],
@@ -77,9 +81,11 @@ def build_filters(q: JobListQuery | JobFacetsQuery) -> list[str]:
     if q.salary_currency:
         parts.append(f"salary_currency = {_fmt_str(q.salary_currency)}")
     if q.post_date_from:
-        parts.append(f"post_date_ts >= {_date_to_ts(q.post_date_from)}")
+        # Filter on freshness (post_date when present, else scraped_at) so
+        # undated listings still participate in the recency window.
+        parts.append(f"freshness_ts >= {_date_to_ts(q.post_date_from)}")
     if q.post_date_to:
-        parts.append(f"post_date_ts <= {_date_to_ts(q.post_date_to)}")
+        parts.append(f"freshness_ts <= {_date_to_ts(q.post_date_to)}")
     if q.company_inferred is not None:
         parts.append(f"company_inferred = {'true' if q.company_inferred else 'false'}")
 

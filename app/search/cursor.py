@@ -4,8 +4,8 @@ Two modes:
 
 * ``ks`` — keyset. Payload: ``{"mode":"ks", "sort": <sort>,
   "last": {<sort_key>: value, "id": <int>}}``. The translator emits an
-  extra Meili filter like ``(post_date_ts < X) OR
-  (post_date_ts = X AND id < Y)`` for the next page.
+  extra Meili filter like ``(freshness_ts < X) OR
+  (freshness_ts = X AND id < Y)`` for the next page.
 * ``pg`` — page. Payload: ``{"mode":"pg", "page": <int>}``. Used for
   relevance-ranked and string-sorted queries where numeric keyset cannot
   be expressed in Meili filters. Max page is capped at ``MAX_PAGE``.
@@ -24,7 +24,7 @@ MAX_PAGE = 50
 
 # Which sort strings use true keyset pagination (numeric sort keys only).
 KEYSET_SORT_KEYS: dict[str, tuple[str, str]] = {
-    "newest":      ("post_date_ts", "desc"),
+    "newest":      ("freshness_ts", "desc"),
     "salary_high": ("salary_max", "desc"),
     "salary_low":  ("salary_min", "asc"),
 }

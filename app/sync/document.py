@@ -35,6 +35,20 @@ def _post_date_ts(row: JobPosting) -> int:
     return int(datetime.combine(row.post_date, time.min, tzinfo=UTC).timestamp())
 
 
+def _freshness_ts(row: JobPosting) -> int:
+    """Epoch seconds for filtering/sorting by recency.
+
+    Falls back to ``scraped_at`` when ``post_date`` is missing so jobs from
+    sources that don't publish a posting date (e.g. Indeed, JobKoreaUSA,
+    Korea Daily, Radio Korea) can still participate in the freshness window
+    that drives the public list/facets endpoints. ``scraped_at`` is NOT NULL
+    on the source table, so this always returns a real timestamp.
+    """
+    if row.post_date is not None:
+        return int(datetime.combine(row.post_date, time.min, tzinfo=UTC).timestamp())
+    return int(row.scraped_at.timestamp())
+
+
 def _salary_field(row: JobPosting, key: str) -> Any:
     salary = row.salary or {}
     return salary.get(key)
@@ -59,6 +73,7 @@ def to_meili_doc(row: JobPosting, description_max_bytes: int) -> dict[str, Any]:
         "description": truncated_description,
         "language": row.language,
         "post_date_ts": _post_date_ts(row),
+        "freshness_ts": _freshness_ts(row),
         "location_city": location.get("city"),
         "location_state": location.get("state"),
         "salary_min": _salary_field(row, "min"),
